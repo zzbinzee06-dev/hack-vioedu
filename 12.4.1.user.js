@@ -1,8 +1,9 @@
 // ==UserScript==
-// @name        Toolkit VioEdu Violympic by Từ Hưng 8A2 pro vip (v12.4.1 Full + Quét đề OCR)
+// @name        Toolkit VioEdu Violympic by Từ Hưng 8A2 pro 
 // @namespace   local.gemini.vio.redesigned.ultra
 // @version     12.4.1
-// @description Giữ nguyên v12.4 + Thêm tính năng Quét đề (OCR DOM) bóc tách chữ trực tiếp từ VioEdu
+// @description Big update
+// @author      Từ Hưng 8A2
 // @match       https://vio.edu.vn/*
 // @match       https://www.vio.edu.vn/*
 // @match       https://violympic.vn/*
