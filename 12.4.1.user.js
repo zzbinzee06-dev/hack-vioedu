@@ -1,15 +1,17 @@
 // ==UserScript==
-// @name        Toolkit VioEdu Violympic by Từ Hưng 8A2 pro 
+// @name        Toolkit VioEdu Violympic by Từ Hưng 8A2 pro vip (v12.4.2 Full + Quét đề OCR)
 // @namespace   local.gemini.vio.redesigned.ultra
-// @version     12.4.1
-// @description Big update
-// @author      Từ Hưng 8A2
+// @version     12.4.2
+// @description Giữ nguyên v12.4 + Thêm tính năng Quét đề (OCR DOM) bóc tách chữ trực tiếp từ VioEdu
 // @match       https://vio.edu.vn/*
 // @match       https://www.vio.edu.vn/*
 // @match       https://violympic.vn/*
 // @match       https://www.violympic.vn/*
 // @require     https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js
 // @grant       GM_xmlhttpRequest
+// @grant       GM_getValue
+// @grant       GM_setValue
+// @grant       GM_deleteValue
 // @connect     generativelanguage.googleapis.com
 // @connect     firebasedatabase.app
 // @run-at      document-idle
@@ -22,13 +24,45 @@
     if (document.getElementById("gvh-button")) return;
 
     const FIREBASE_URL = "https://cheat-enginer-default-rtdb.asia-southeast1.firebasedatabase.app";
-    const SCRIPT_PASSWORD = "thung8a2"; // Master Key Admin
+    // Master key admin: chỉ lưu mã băm SHA-256, không để mật khẩu dạng chữ trong script
+    const MASTER_HASH = "112da6872bacd59423b535f3a1e55c7530330cfdcdb16745ed6a7a5b12c95cf4";
 
-    let API_KEY = "";
-    let MODEL = "gemini-3.5-flash-lite";
+    // Lưu trữ bền vững: GM_* dùng chung cho cả 4 tên miền (vio.edu.vn, violympic.vn...), dự phòng localStorage
+    const store = {
+        get(k, d) {
+            try {
+                if (typeof GM_getValue === "function") { const v = GM_getValue(k); return v === undefined ? d : v; }
+                const v = localStorage.getItem(k); return v === null ? d : v;
+            } catch (e) { return d; }
+        },
+        set(k, v) {
+            try { if (typeof GM_setValue === "function") GM_setValue(k, v); else localStorage.setItem(k, v); } catch (e) {}
+        },
+        del(k) {
+            try { if (typeof GM_deleteValue === "function") GM_deleteValue(k); else localStorage.removeItem(k); } catch (e) {}
+        }
+    };
+
+    // JSON.parse an toàn: dữ liệu localStorage hỏng sẽ không làm sập cả script
+    function safeJSON(key) {
+        try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
+    }
+
+    function readSession() {
+        try {
+            const x = JSON.parse(store.get("gvh_session", "null"));
+            if (x && (x.type === "admin" || (x.type === "key" && x.key))) return x;
+        } catch (e) {}
+        return null;
+    }
+    const SESSION = readSession();
+    let UNLOCKED = !!SESSION;
+
+    let API_KEY = store.get("gvh_api_key", "");
+    let MODEL = store.get("gvh_model", "gemini-3.5-flash-lite");
 
     // Cấu hình giao diện
-    let savedAppearance = JSON.parse(localStorage.getItem("gvh_appearance_settings")) || {
+    let savedAppearance = safeJSON("gvh_appearance_settings") || {
         theme: "blue",
         customColor: "#2563eb",
         effect: "none",
@@ -46,13 +80,13 @@
     let BORDER_RADIUS = savedAppearance.radius;
     let PANEL_SCALE = savedAppearance.scale || "1";
 
-    let savedShortcut = JSON.parse(localStorage.getItem("gvh_shortcut_obj")) || { code: "Space", display: "Ctrl + Space" };
+    let savedShortcut = safeJSON("gvh_shortcut_obj") || { code: "Space", display: "Ctrl + Space" };
     let TOGGLE_SHORTCUT = savedShortcut;
 
     let defaultNotes = [
         { text: "⚡ CÁCH LẤY GEMINI API RIÊNG:\n\nBước 1: Vào https://aistudio.google.com/api-keys\nBước 2: Đăng nhập Google.\nBước 3: Nhấn Create API key.\nBước 4: Copy API Key và dán vào ứng dụng.", time: "Hệ thống" }
     ];
-    let savedNotes = JSON.parse(localStorage.getItem("gvh_notes"));
+    let savedNotes = safeJSON("gvh_notes");
     let NOTES = (savedNotes && savedNotes.length > 0) ? savedNotes : defaultNotes;
     if (!savedNotes) localStorage.setItem("gvh_notes", JSON.stringify(NOTES));
 
@@ -348,7 +382,7 @@
     btn.textContent = "⚡";
     document.body.appendChild(btn);
 
-    const isAdmin = sessionStorage.getItem("gvh_is_admin") === "true";
+    const isAdmin = !!SESSION && SESSION.type === "admin";
 
     const panel = document.createElement("div");
     panel.id = "gvh-panel";
@@ -358,9 +392,10 @@
         <div id="gvh-header">
             <div>
                 <div id="gvh-title">⚡ cheat engine </div>
-                <div id="gvh-sub">by Từ Hưng 8A2 • Pro VIP v12.4.1</div>
+                <div id="gvh-sub">by Từ Hưng 8A2 • Pro VIP v12.4.2 • ${SESSION && SESSION.type === "admin" ? "👑 Admin" : "🔑 " + String(SESSION && SESSION.key || "").replace(/[&<>\"']/g, "")}</div>
             </div>
             <div class="gvh-space"></div>
+            <button class="gvh-icon" id="gvh-logout-head" title="Đăng xuất">🚪</button>
             <button class="gvh-icon" id="gvh-minimize-btn" title="Thu gọn">🗕</button>
             <button class="gvh-icon" id="gvh-close" title="Đóng">✕</button>
         </div>
@@ -377,7 +412,7 @@
         <div id="tab-chat" class="gvh-tab-content active">
             <div id="gvh-messages">
                 <div class="gvh-msg gvh-ai">
-⚡ THÔNG TIN PHIÊN BẢN (v12.4.1) ⚡<br><br>
+⚡ THÔNG TIN PHIÊN BẢN (v12.4.2) ⚡<br><br>
 • Thêm nút <b>🔍 Quét đề</b> để bóc tách chữ trực tiếp từ VioEdu, khắc phục triệt để lỗi ảnh chụp trắng.<br>
 • Hỗ trợ dán ảnh thủ công qua <b>Ctrl + V</b> và nút <b>📸 Chụp bài</b>.
                 </div>
@@ -522,6 +557,7 @@
                 </div>
                 <button id="gvh-save-system" class="gvh-action-btn">💾 Lưu Cài Đặt Hệ Thống</button>
                 <div id="gvh-system-status" class="gvh-settings-status"></div>
+                <button id="gvh-logout" class="gvh-action-btn" style="background:linear-gradient(135deg,#ef4444,#b91c1c); box-shadow:0 4px 15px rgba(239,68,68,0.35);">🚪 Đăng xuất khỏi thiết bị này</button>
             </div>
         </div>
     `;
@@ -531,6 +567,8 @@
 
     $("gvh-theme-select").value = CURRENT_THEME;
     $("gvh-model").value = MODEL;
+    if (!$("gvh-model").value) { MODEL = "gemini-3.5-flash-lite"; $("gvh-model").value = MODEL; }
+    if (API_KEY) $("gvh-key").value = API_KEY;
     $("gvh-effect-select").value = CURRENT_EFFECT;
     $("gvh-fontsize-select").value = FONT_SIZE;
     $("gvh-radius-select").value = BORDER_RADIUS;
@@ -598,12 +636,49 @@
         }
     };
 
-    // KIỂM TRA VÀ XÁC THỰC KEY TRỰC TUYẾN FIREBASE
+    // ===== XÁC THỰC KEY (đăng nhập được trên nhiều thiết bị, nhớ đăng nhập lâu dài) =====
+    async function sha256(text) {
+        const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    function sanitizeKeyName(str) {
+        return String(str).trim().replace(/[.#$\[\]\/]/g, "_");
+    }
+
+    function fetchKeyData(keyName) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: "GET",
+                url: `${FIREBASE_URL}/keys/${encodeURIComponent(keyName)}.json`,
+                timeout: 15000,
+                onload: (res) => {
+                    if (res.status < 200 || res.status >= 300) { reject(new Error("HTTP " + res.status)); return; }
+                    try { resolve(JSON.parse(res.responseText)); } catch (e) { reject(e); }
+                },
+                onerror: () => reject(new Error("network")),
+                ontimeout: () => reject(new Error("timeout"))
+            });
+        });
+    }
+
+    function logout() {
+        store.del("gvh_session");
+        location.reload();
+    }
+
+    function unlockUI() {
+        UNLOCKED = true;
+        lockScreen.style.display = "none";
+        btn.style.display = "flex";
+    }
+
     async function verifyKey() {
-        const inputKey = $("gvh-lock-input").value.trim();
+        const rawKey = $("gvh-lock-input").value.trim();
         const errorEl = $("gvh-lock-error");
 
-        if (!inputKey) {
+        if (!rawKey) {
+            errorEl.style.color = "#f87171";
             errorEl.textContent = "⚠️ Vui lòng nhập mã Key!";
             return;
         }
@@ -611,53 +686,56 @@
         errorEl.style.color = "#38bdf8";
         errorEl.textContent = "🔄 Đang kiểm tra Key trực tuyến...";
 
-        if (inputKey === SCRIPT_PASSWORD) {
-            sessionStorage.setItem("gvh_unlocked", "true");
-            sessionStorage.setItem("gvh_is_admin", "true");
-            location.reload();
-            return;
-        }
-
-        GM_xmlhttpRequest({
-            method: "GET",
-            url: `${FIREBASE_URL}/keys/${inputKey}.json`,
-            onload: function (res) {
-                try {
-                    const data = JSON.parse(res.responseText);
-                    if (!data) {
-                        errorEl.style.color = "#f87171";
-                        errorEl.textContent = "❌ Key không tồn tại hoặc không hợp lệ!";
-                        return;
-                    }
-
-                    const now = new Date();
-                    const expireDate = new Date(data.expire_date);
-
-                    if (now < expireDate) {
-                        sessionStorage.setItem("gvh_unlocked", "true");
-                        sessionStorage.setItem("gvh_is_admin", "false");
-                        lockScreen.style.display = "none";
-                        btn.style.display = "flex";
-                        alert(`🔓 Mở khóa thành công!\nHạn sử dụng Key của bạn đến: ${expireDate.toLocaleDateString('vi-VN')} ${expireDate.toLocaleTimeString('vi-VN')}`);
-                    } else {
-                        errorEl.style.color = "#f87171";
-                        errorEl.textContent = `❌ Key này đã HẾT HẠN vào ngày ${expireDate.toLocaleDateString('vi-VN')}!`;
-                    }
-                } catch (e) {
-                    errorEl.style.color = "#f87171";
-                    errorEl.textContent = "❌ Lỗi đọc dữ liệu từ Server Firebase!";
-                }
-            },
-            onerror: function () {
-                errorEl.style.color = "#f87171";
-                errorEl.textContent = "❌ Lỗi kết nối mạng đến Firebase!";
+        // Master key admin (không giới hạn thiết bị)
+        try {
+            if (await sha256(rawKey) === MASTER_HASH) {
+                store.set("gvh_session", JSON.stringify({ type: "admin" }));
+                location.reload();
+                return;
             }
-        });
+        } catch (e) {}
+
+        const keyName = sanitizeKeyName(rawKey);
+        try {
+            const data = await fetchKeyData(keyName);
+            if (!data || !data.expire_date) {
+                errorEl.style.color = "#f87171";
+                errorEl.textContent = "❌ Key không tồn tại hoặc không hợp lệ!";
+                return;
+            }
+
+            const expireDate = new Date(data.expire_date);
+            if (isNaN(expireDate.getTime())) {
+                errorEl.style.color = "#f87171";
+                errorEl.textContent = "❌ Key bị lỗi dữ liệu ngày hết hạn!";
+                return;
+            }
+
+            if (new Date() >= expireDate) {
+                errorEl.style.color = "#f87171";
+                errorEl.textContent = `❌ Key này đã HẾT HẠN vào ngày ${expireDate.toLocaleDateString('vi-VN')}!`;
+                return;
+            }
+
+            store.set("gvh_session", JSON.stringify({ type: "key", key: keyName }));
+            unlockUI();
+            alert(`🔓 Mở khóa thành công!\nHạn sử dụng Key của bạn đến: ${expireDate.toLocaleDateString('vi-VN')} ${expireDate.toLocaleTimeString('vi-VN')}`);
+        } catch (e) {
+            errorEl.style.color = "#f87171";
+            errorEl.textContent = "❌ Lỗi kết nối đến Firebase, thử lại sau!";
+        }
     }
 
-    if (sessionStorage.getItem("gvh_unlocked") === "true") {
+    if (UNLOCKED) {
         lockScreen.style.display = "none";
         btn.style.display = "flex";
+        // Key thường: kiểm tra lại ngầm, nếu bị xóa hoặc hết hạn thì tự đăng xuất
+        if (SESSION.type === "key") {
+            fetchKeyData(SESSION.key).then(d => {
+                const exp = d && d.expire_date ? new Date(d.expire_date) : null;
+                if (!exp || isNaN(exp.getTime()) || new Date() >= exp) logout();
+            }).catch(() => {}); // mất mạng thì vẫn cho dùng tiếp
+        }
     } else {
         lockScreen.style.display = "flex";
         btn.style.display = "none";
@@ -665,11 +743,16 @@
 
     $("gvh-lock-btn").onclick = verifyKey;
     $("gvh-lock-input").addEventListener("keydown", e => { if (e.key === "Enter") verifyKey(); });
+    const confirmLogout = () => {
+        if (confirm("Đăng xuất khỏi thiết bị này? Bạn sẽ cần nhập lại Key.")) logout();
+    };
+    $("gvh-logout").onclick = confirmLogout;
+    $("gvh-logout-head").onclick = confirmLogout;
 
     // CÁC HÀM XỬ LÝ ADMIN KEY FIREBASE
     if (isAdmin) {
         $("gvh-admin-create-btn").onclick = () => {
-            const keyName = $("gvh-admin-keyname").value.trim().replace(/[\.\#\$\[\]]/g, "_");
+            const keyName = sanitizeKeyName($("gvh-admin-keyname").value);
             const days = parseInt($("gvh-admin-days").value) || 30;
             const statusEl = $("gvh-admin-status");
 
@@ -684,14 +767,23 @@
 
             GM_xmlhttpRequest({
                 method: "PUT",
-                url: `${FIREBASE_URL}/keys/${keyName}.json`,
+                url: `${FIREBASE_URL}/keys/${encodeURIComponent(keyName)}.json`,
                 headers: { "Content-Type": "application/json" },
                 data: JSON.stringify({
                     expire_date: expireDate.toISOString(),
                     created_at: new Date().toISOString(),
                     days_valid: days
                 }),
-                onload: function () {
+                onerror: function () {
+                    statusEl.style.color = "#f87171";
+                    statusEl.textContent = "❌ Lỗi mạng khi tạo Key!";
+                },
+                onload: function (res) {
+                    if (res.status < 200 || res.status >= 300) {
+                        statusEl.style.color = "#f87171";
+                        statusEl.textContent = "❌ Không tạo được Key (kiểm tra Firebase Rules)!";
+                        return;
+                    }
                     statusEl.style.color = "#34d399";
                     statusEl.textContent = `✓ Đã tạo Key [${keyName}] thành công (${days} ngày)!`;
                     $("gvh-admin-keyname").value = "";
@@ -718,15 +810,15 @@
                     const now = new Date();
 
                     for (let k in data) {
-                        const exp = new Date(data[k].expire_date);
-                        const isExpired = now > exp;
+                        const exp = new Date(data[k] && data[k].expire_date);
+                        const isExpired = isNaN(exp.getTime()) || now > exp;
                         html += `
                             <div style="background:rgba(15,23,42,0.6); padding:8px; border-radius:8px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
                                 <div>
-                                    <b style="color:${isExpired ? '#f87171' : '#38bdf8'};">${k}</b><br>
-                                    <span style="color:#94a3b8; font-size:10px;">Hạn: ${exp.toLocaleDateString('vi-VN')} (${isExpired ? 'Hết hạn' : 'Đang chạy'})</span>
+                                    <b style="color:${isExpired ? '#f87171' : '#38bdf8'};">${escapeHtml(k)}</b><br>
+                                    <span style="color:#94a3b8; font-size:10px;">Hạn: ${isNaN(exp.getTime()) ? 'Lỗi ngày' : exp.toLocaleDateString('vi-VN')} (${isExpired ? 'Hết hạn' : 'Đang chạy'})</span>
                                 </div>
-                                <button class="gvh-del-key-btn" data-key="${k}" style="background:#ef4444; border:none; color:white; padding:4px 8px; border-radius:6px; cursor:pointer;">Xóa</button>
+                                <button class="gvh-del-key-btn" data-key="${escapeHtml(k)}" style="background:#ef4444; border:none; color:white; padding:4px 8px; border-radius:6px; cursor:pointer;">Xóa</button>
                             </div>
                         `;
                     }
@@ -738,7 +830,7 @@
                             if (confirm(`Bạn có chắc muốn xóa Key: ${keyToDelete}?`)) {
                                 GM_xmlhttpRequest({
                                     method: "DELETE",
-                                    url: `${FIREBASE_URL}/keys/${keyToDelete}.json`,
+                                    url: `${FIREBASE_URL}/keys/${encodeURIComponent(keyToDelete)}.json`,
                                     onload: function () { loadKeyList(); }
                                 });
                             }
@@ -775,7 +867,7 @@
             <div class="gvh-note-card" data-index="${index}">
                 <div class="gvh-note-text">${escapeHtml(note.text)}</div>
                 <div class="gvh-note-footer">
-                    <span class="gvh-note-time">${note.time}</span>
+                    <span class="gvh-note-time">${escapeHtml(String(note.time))}</span>
                     <div class="gvh-note-actions">
                         <button class="gvh-copy-btn" data-index="${index}" title="Sao chép">📋 Copy</button>
                         <button class="gvh-del-btn" data-index="${index}" title="Xóa">🗑 Xóa</button>
@@ -821,8 +913,10 @@
     function makeDraggable(element, handle) {
         let isDragging = false, hasMoved = false;
         let startX, startY, initialX, initialY;
+        handle.style.touchAction = "none";
 
-        handle.addEventListener("mousedown", (e) => {
+        handle.addEventListener("pointerdown", (e) => {
+            if (e.pointerType === "mouse" && e.button !== 0) return;
             if (e.target.closest('button, select, input, textarea, #gvh-shortcut-recorder, .gvh-tab-btn, .gvh-tab-content')) return;
 
             isDragging = true;
@@ -842,24 +936,24 @@
             initialX = unscaledLeft;
             initialY = unscaledTop;
 
-            document.addEventListener("mousemove", onMouseMove);
-            document.addEventListener("mouseup", onMouseUp);
+            try { handle.setPointerCapture(e.pointerId); } catch (err) {}
         });
 
-        function onMouseMove(e) {
+        handle.addEventListener("pointermove", (e) => {
             if (!isDragging) return;
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasMoved = true;
             element.style.left = (initialX + dx) + "px";
             element.style.top = (initialY + dy) + "px";
-        }
+        });
 
-        function onMouseUp() {
+        const endDrag = (e) => {
             isDragging = false;
-            document.removeEventListener("mousemove", onMouseMove);
-            document.removeEventListener("mouseup", onMouseUp);
-        }
+            try { handle.releasePointerCapture(e.pointerId); } catch (err) {}
+        };
+        handle.addEventListener("pointerup", endDrag);
+        handle.addEventListener("pointercancel", endDrag);
 
         return () => hasMoved;
     }
@@ -868,6 +962,7 @@
     makeDraggable(panel, $("gvh-header"));
 
     function togglePanel() {
+        if (!UNLOCKED) return;
         if (panel.classList.contains("gvh-show")) {
             panel.classList.remove("gvh-show");
             panel.classList.add("gvh-hide");
@@ -877,13 +972,14 @@
         } else {
             const btnRect = btn.getBoundingClientRect();
             panel.style.display = "flex";
-            let targetLeft = btnRect.left - 430;
-            let targetTop = btnRect.top - 740;
-            if (targetLeft < 10) targetLeft = 10;
-            if (targetTop < 10) targetTop = 10;
+            const pw = panel.offsetWidth, ph = panel.offsetHeight;
+            let targetLeft = btnRect.right - pw;
+            let targetTop = btnRect.top - ph - 12;
+            targetLeft = Math.max(8, Math.min(targetLeft, window.innerWidth - pw - 8));
+            targetTop = Math.max(8, Math.min(targetTop, window.innerHeight - ph - 8));
 
-            panel.style.left = Math.min(targetLeft, window.innerWidth - 490) + "px";
-            panel.style.top = Math.min(targetTop, window.innerHeight - 740) + "px";
+            panel.style.left = targetLeft + "px";
+            panel.style.top = targetTop + "px";
             panel.style.bottom = "auto";
             panel.style.right = "auto";
 
@@ -899,6 +995,7 @@
     };
 
     document.addEventListener("keydown", (e) => {
+        if (!UNLOCKED) return;
         if (recorder.classList.contains("recording")) return;
 
         let sc = TOGGLE_SHORTCUT;
@@ -914,7 +1011,7 @@
     });
 
     function escapeHtml(str) {
-        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
     function formatMessageText(text) {
@@ -943,7 +1040,6 @@
             const systemInstruction = "Bạn là một trợ lý thông minh chuyên giải toán VioEdu và Violympic. QUY TẮC BẮT BUỘC: KHÔNG BAO GIỜ sử dụng các lệnh LaTeX phức tạp như \\mathbf, \\widehat hay \\left/\\right trong câu trả lời. Đối với hình học, hãy viết dạng văn bản đơn giản (ví dụ: góc C2, góc A, góc B). Trình bày ngắn gọn, rõ ràng, luôn in đậm kết quả cuối cùng để học sinh điền ngay.";
 
             let parts = [
-                { text: "Hệ thống chỉ dẫn: " + systemInstruction },
                 { text: prompt }
             ];
 
@@ -957,17 +1053,19 @@
             }
 
             const body = {
+                systemInstruction: { parts: [{ text: systemInstruction }] },
                 contents: [
                     { role: "user", parts: parts }
                 ]
             };
+            if (useSearch) body.tools = [{ google_search: {} }];
 
-            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
             GM_xmlhttpRequest({
                 method: "POST",
                 url: API_URL,
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "x-goog-api-key": API_KEY },
                 data: JSON.stringify(body),
                 timeout: 120000,
                 onload(response) {
@@ -1209,6 +1307,8 @@
 
         try {
             await testAPI();
+            store.set("gvh_api_key", API_KEY);
+            store.set("gvh_model", MODEL);
             statusEl.style.color = "#34d399";
             statusEl.textContent = `✓ Kết nối API thành công!`;
             addMessage(`✓ Đã lưu cấu hình API!\n- Model: ${MODEL}`);
