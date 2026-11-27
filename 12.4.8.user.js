@@ -106,12 +106,17 @@
     let savedShortcut = safeJSON("gvh_shortcut_obj") || { code: "Space", display: "Ctrl + Space" };
     let TOGGLE_SHORTCUT = savedShortcut;
 
-    let defaultNotes = [
-        { text: "⚡ CÁCH LẤY GEMINI API RIÊNG:\n\nBước 1: Vào https://aistudio.google.com/api-keys\nBước 2: Đăng nhập Google.\nBước 3: Nhấn Create API key.\nBước 4: Copy API Key và dán vào ứng dụng.", time: "Hệ thống" }
-    ];
+    const PINNED_LINK = "https://raw.githubusercontent.com/zzbinzee06-dev/hack-violypic/main/12.4.8.user.js";
+    const PINNED_NOTE = { text: "📌 Link script:\n" + PINNED_LINK, time: "Đã ghim", pinned: true };
+    let defaultNotes = [PINNED_NOTE];
     let savedNotes = safeJSON("gvh_notes");
     let NOTES = (savedNotes && savedNotes.length > 0) ? savedNotes : defaultNotes;
-    if (!savedNotes) localStorage.setItem("gvh_notes", JSON.stringify(NOTES));
+    // Xóa ghi chú API mặc định cũ (nếu còn lưu từ bản trước)
+    NOTES = NOTES.filter(n => !(n && n.time === "Hệ thống" && String(n.text).startsWith("⚡ CÁCH LẤY GEMINI API RIÊNG")));
+    // Luôn có ghi chú ghim và luôn nằm trên cùng
+    if (!NOTES.some(n => n && n.pinned)) NOTES.unshift(PINNED_NOTE);
+    NOTES = [...NOTES.filter(n => n && n.pinned), ...NOTES.filter(n => n && !n.pinned)];
+    localStorage.setItem("gvh_notes", JSON.stringify(NOTES));
 
     const THEMES = {
         blue: { primary: "#2563eb", light: "#60a5fa", grad1: "#3b82f6", grad2: "#1d4ed8", glow: "rgba(59, 130, 246, 0.35)", bgCard: "rgba(30, 41, 59, 0.6)" },
@@ -1247,12 +1252,14 @@
 
         container.innerHTML = NOTES.map((note, index) => `
             <div class="gvh-note-card" data-index="${index}">
-                <div class="gvh-note-text">${escapeHtml(note.text)}</div>
+                <div class="gvh-note-text">${note.pinned
+                    ? escapeHtml(note.text).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;">$1</a>')
+                    : escapeHtml(note.text)}</div>
                 <div class="gvh-note-footer">
                     <span class="gvh-note-time">${escapeHtml(String(note.time))}</span>
                     <div class="gvh-note-actions">
                         <button class="gvh-copy-btn" data-index="${index}" title="Sao chép">📋 Copy</button>
-                        <button class="gvh-del-btn" data-index="${index}" title="Xóa">🗑 Xóa</button>
+                        ${note.pinned ? "" : `<button class="gvh-del-btn" data-index="${index}" title="Xóa">🗑 Xóa</button>`}
                     </div>
                 </div>
             </div>
@@ -1286,7 +1293,8 @@
         if (!text) return;
         const now = new Date();
         const timeStr = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')} - ${now.getDate()}/${now.getMonth()+1}`;
-        NOTES.unshift({ text, time: timeStr });
+        const pinnedCount = NOTES.filter(n => n && n.pinned).length;
+        NOTES.splice(pinnedCount, 0, { text, time: timeStr });
         localStorage.setItem("gvh_notes", JSON.stringify(NOTES));
         $("gvh-new-note").value = "";
         renderNotes();
