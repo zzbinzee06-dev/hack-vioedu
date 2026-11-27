@@ -106,7 +106,7 @@
     let savedShortcut = safeJSON("gvh_shortcut_obj") || { code: "Space", display: "Ctrl + Space" };
     let TOGGLE_SHORTCUT = savedShortcut;
 
-    const PINNED_LINK = "https://raw.githubusercontent.com/zzbinzee06-dev/hack-violypic/main/12.4.8.user.js";
+    const PINNED_LINK = "https://raw.githubusercontent.com/zzbinzee06-dev/hack-violypic/main/12.4.8.1.user.js";
     const PINNED_NOTE = { text: "📌 Link script:\n" + PINNED_LINK, time: "Đã ghim", pinned: true };
     let defaultNotes = [PINNED_NOTE];
     let savedNotes = safeJSON("gvh_notes");
