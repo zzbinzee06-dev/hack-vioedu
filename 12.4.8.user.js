@@ -14,8 +14,8 @@
 // @grant       GM_deleteValue
 // @grant       GM_info
 // @grant       GM_openInTab
-// @updateURL   https://raw.githubusercontent.com/zzbinzee06-dev/hack-vioedu/main/12.4.8.user.js
-// @downloadURL https://raw.githubusercontent.com/zzbinzee06-dev/hack-vioedu/main/12.4.8.user.js
+// @updateURL   https://github.com/zzbinzee06-dev/hack-violypic/raw/refs/heads/main/12.4.8.user.js
+// @downloadURL https://github.com/zzbinzee06-dev/hack-violypic/raw/refs/heads/main/12.4.8.user.js
 // @connect     generativelanguage.googleapis.com
 // @connect     firebasedatabase.app
 // @connect     *
@@ -106,15 +106,19 @@
     let TOGGLE_SHORTCUT = savedShortcut;
 
     const PINNED_LINK = "https://raw.githubusercontent.com/zzbinzee06-dev/hack-violypic/main/12.4.8.2.user.js";
-    const PINNED_NOTE = { text: "📌 Link script:\n" + PINNED_LINK, time: "Đã ghim", pinned: true };
-    let defaultNotes = [PINNED_NOTE];
+    const GEMINI_GUIDE_LINK = "https://www.youtube.com/watch?v=ag0bHshpQ4U";
+    // Danh sách ghi chú ghim mặc định (luôn nằm trên cùng, không xóa được)
+    const PINNED_NOTES = [
+        { text: "📌 Link cập nhật script:\n" + PINNED_LINK, time: "Đã ghim", pinned: true },
+        { text: "🔑 Cách lấy API key Gemini miễn phí (xem video hướng dẫn):\n" + GEMINI_GUIDE_LINK, time: "Đã ghim", pinned: true }
+    ];
+    let defaultNotes = PINNED_NOTES.slice();
     let savedNotes = safeJSON("gvh_notes");
     let NOTES = (savedNotes && savedNotes.length > 0) ? savedNotes : defaultNotes;
     // Xóa ghi chú API mặc định cũ (nếu còn lưu từ bản trước)
     NOTES = NOTES.filter(n => !(n && n.time === "Hệ thống" && String(n.text).startsWith("⚡ CÁCH LẤY GEMINI API RIÊNG")));
-    // Luôn có ghi chú ghim và luôn nằm trên cùng
-    if (!NOTES.some(n => n && n.pinned)) NOTES.unshift(PINNED_NOTE);
-    NOTES = [...NOTES.filter(n => n && n.pinned), ...NOTES.filter(n => n && !n.pinned)];
+    // Luôn dùng đúng bộ ghi chú ghim mới nhất (người dùng cũ cũng được thêm ghi chú mới) và luôn nằm trên cùng
+    NOTES = [...PINNED_NOTES, ...NOTES.filter(n => n && !n.pinned)];
     localStorage.setItem("gvh_notes", JSON.stringify(NOTES));
 
     const THEMES = {
